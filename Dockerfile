@@ -1,73 +1,39 @@
-###########
-# BUILDER #
-###########
+FROM python:3.13
 
-# pull official base image
-FROM python:3.13 as builder
-
-# set work directory
 WORKDIR /usr/src/app
 
-# set environment variables
+# Definir variáveis de ambiente
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y --no-install-recommends gcc netcat-openbsd
 
-# lint
+# Atualizar pip
 RUN pip install --upgrade pip
-RUN pip install flake8==6.0.0
-COPY . /usr/src/app/
-RUN flake8 --ignore=E501,F401,W503 --exclude=env .
 
-# install python dependencies
+# Copiar o arquivo de dependências e instalar
 COPY ./requirements.txt .
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
+# Criar diretórios e usuário para a app
+RUN mkdir -p /home/app/web/staticfiles /home/app/web/mediafiles && \
+    addgroup --system app && adduser --system --group app
 
-#########
-# FINAL #
-#########
+WORKDIR /home/app/web
 
-# pull official base image
-FROM python:3.13
+# Copiar o código do projeto
+COPY . /home/app/web/
 
-# create directory for the app user
-RUN mkdir -p /home/app
+# Ajustar permissões
+RUN chown -R app:app /home/app/web
 
-# create the app user
-RUN addgroup --system app && adduser --system --group app
+# Copiar o entrypoint e torná-lo executável
+COPY ./entrypoint.sh /home/app/web/
+RUN chmod +x /home/app/web/entrypoint.sh
 
-# create the appropriate directories
-ENV HOME=/home/app
-ENV APP_HOME=/home/app/web
-RUN mkdir $APP_HOME
-RUN mkdir $APP_HOME/staticfiles
-RUN mkdir $APP_HOME/mediafiles
-WORKDIR $APP_HOME
-
-# install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends netcat-openbsd
-COPY --from=builder /usr/src/app/wheels /wheels
-COPY --from=builder /usr/src/app/requirements.txt .
-RUN pip install --upgrade pip
-RUN pip install --no-cache /wheels/*
-
-# copy entrypoint.sh
-COPY ./entrypoint.sh .
-RUN sed -i 's/\r$//g'  $APP_HOME/entrypoint.sh
-RUN chmod +x  $APP_HOME/entrypoint.sh
-
-# copy project
-COPY . $APP_HOME
-
-# chown all the files to the app user
-RUN chown -R app:app $APP_HOME
-
-# change to the app user
+# Mudar para o usuário app
 USER app
 
-# run entrypoint.sh
+# Entrar no entrypoint
 ENTRYPOINT ["/home/app/web/entrypoint.sh"]
